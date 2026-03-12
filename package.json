@@ -41,6 +41,7 @@
     "react-toastify": "^11.0.5",
     "react-twemoji": "^0.7.2",
     "sass": "^1.98.0",
+    "snake-case": "^4.0.0",
     "tippy.js": "6.3.7"
   },
   "devDependencies": {
