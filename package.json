@@ -6,10 +6,10 @@
     "build:wasm": "rustup run stable wasm-pack build wasm --target web --out-dir ../public/wasm --out-name discord_package_wasm",
     "predev": "rustup run stable wasm-pack build wasm --target web --out-dir ../public/wasm --out-name discord_package_wasm",
     "prebuild": "rustup run stable wasm-pack build wasm --target web --out-dir ../public/wasm --out-name discord_package_wasm",
-    "dev": "pnpm next dev",
-    "build": "pnpm next build",
+    "dev": "bun run prebuild && bun next dev",
+    "build": "next build",
     "start": "npx serve@latest out",
-    "lint": "pnpm next lint"
+    "lint": "next lint"
   },
   "dependencies": {
     "@emotion/react": "^11.14.0",
