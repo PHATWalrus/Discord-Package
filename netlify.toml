@@ -1,5 +1,5 @@
 [build]
-  publish = ".next"
+	publish = "out"
 
 [[plugins]]
   package = "netlify-plugin-submit-sitemap"
@@ -16,3 +16,16 @@
 		"google",
 		"yandex"
 	]
+
+[[headers]]
+  for = "/*"
+
+  [headers.values]
+    Cross-Origin-Opener-Policy = "same-origin"
+    Cross-Origin-Embedder-Policy = "require-corp"
+
+[[headers]]
+  for = "/*.wasm"
+
+  [headers.values]
+    Content-Type = "application/wasm"

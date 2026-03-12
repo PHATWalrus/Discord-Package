@@ -11,6 +11,61 @@ import Events from "../json/events.json";
 import currencies from "../json/other/currencies.json";
 import connectionsJSON from "../json/Connections.json";
 
+function createAnalyticsPatterns(selectedFeatures) {
+  const eventsOccurrences = {};
+  const patternsByFirstChar = {};
+  let maxPatternLength = 1;
+
+  for (const eventName of selectedFeatures || []) {
+    eventsOccurrences[eventName] = 0;
+    const snakeName = snakeCase(eventName);
+    const pattern = {
+      eventName,
+      snakeName,
+      length: snakeName.length,
+    };
+
+    const firstChar = snakeName.charAt(0);
+    if (!patternsByFirstChar[firstChar]) {
+      patternsByFirstChar[firstChar] = [];
+    }
+    patternsByFirstChar[firstChar].push(pattern);
+
+    if (snakeName.length > maxPatternLength) {
+      maxPatternLength = snakeName.length;
+    }
+  }
+
+  return {
+    eventsOccurrences,
+    maxPatternLength,
+    patternsByFirstChar,
+  };
+}
+
+function scanAnalyticsChunk(chunk, carry, patternsByFirstChar, eventsOccurrences, maxPatternLength, final) {
+  const combined = carry + chunk;
+  const carryLength = carry.length;
+
+  for (let index = 0; index < combined.length; index++) {
+    const candidates = patternsByFirstChar[combined.charAt(index)];
+    if (!candidates || !candidates.length) continue;
+
+    for (const candidate of candidates) {
+      const endIndex = index + candidate.length;
+      if (endIndex > combined.length) continue;
+      if (!combined.startsWith(candidate.snakeName, index)) continue;
+      if (endIndex <= carryLength) continue;
+      eventsOccurrences[candidate.eventName]++;
+    }
+  }
+
+  if (final) return "";
+
+  const overlapLength = Math.max(0, maxPatternLength - 1);
+  return combined.length > overlapLength ? combined.slice(-overlapLength) : combined;
+}
+
 class Utils {
   static getMostUsedCurrency(transactions, amount) {
     if (transactions == null) {
@@ -170,7 +225,7 @@ class Utils {
         : `{${candidate.replace(/^{|}$/g, "")}}`;
       try {
         items.push(JSON.parse(withBraces, reviver));
-      } catch (_err) {
+      } catch {
         continue;
       }
     }
@@ -221,7 +276,7 @@ class Utils {
       try {
         const salvaged = Utils.salvageObjects(normalized, reviver);
         if (salvaged.length) return mapMessages(salvaged);
-      } catch (_salvageErr) {
+      } catch {
         // ignore and fall through
       }
 
@@ -244,54 +299,98 @@ class Utils {
         1000)
     );
   }
-  static readAnalyticsFile(file, loading, setLoading, selectedFeatures) {
+  static readAnalyticsFiles(files, loading, setLoading, selectedFeatures) {
     return new Promise((resolve) => {
-      if (!file) resolve({});
-      const eventsOccurrences = {};
-      for (let eventName of selectedFeatures) eventsOccurrences[eventName] = 0;
-      const decoder = new DecodeUTF8();
-      let startAt = Date.now();
-      let bytesRead = 0;
-      file.ondata = (_err, data, final) => {
-        bytesRead += data.length;
-        const remainingBytes = file.originalSize - bytesRead;
-        const timeToReadByte = (Date.now() - startAt) / bytesRead;
-        const remainingTime = parseInt(
-          (remainingBytes * timeToReadByte) / 1000
-        );
+      const analyticsFiles = Array.isArray(files)
+        ? files.filter(Boolean)
+        : files
+          ? [files]
+          : [];
 
-        setLoading(
-          `Loading Analytics: ${Math.ceil(
-            (bytesRead / file.originalSize) * 100
-          )}%|||Estimated time: ${remainingTime + 1} second${remainingTime + 1 === 1 ? "" : "s"
-          }`
-        );
+      if (!analyticsFiles.length) {
+        resolve({});
+        return;
+      }
 
-        decoder.push(data, final);
-      };
-      let prevChkEnd = "";
-      decoder.ondata = (str, final) => {
-        str = prevChkEnd + str;
-        for (let event of Object.keys(eventsOccurrences)) {
-          const eventName = snakeCase(event);
-          // eslint-disable-next-line no-constant-condition
-          while (true) {
-            const ind = str.indexOf(eventName);
-            if (ind == -1) break;
-            str = str.slice(ind + eventName.length);
-            eventsOccurrences[event]++;
-          }
-          prevChkEnd = str.slice(-eventName.length);
+      const { eventsOccurrences, maxPatternLength, patternsByFirstChar } = createAnalyticsPatterns(selectedFeatures);
+      const totalSize = analyticsFiles.reduce((sum, file) => sum + (file?.originalSize || 0), 0);
+      const startAt = Date.now();
+      let totalBytesRead = 0;
+
+      const updateLoading = (value) => {
+        if (typeof setLoading === "function") {
+          setLoading(value);
         }
-        if (final) {
-          setLoading("Rendering Data|||✨ Rendering your Data");
+      };
+
+      const scanNextFile = (fileIndex) => {
+        if (fileIndex >= analyticsFiles.length) {
+          updateLoading("Rendering Data|||✨ Rendering your Data");
           resolve({
             all: eventsOccurrences ? eventsOccurrences : [],
           });
+          return;
         }
+
+        const file = analyticsFiles[fileIndex];
+        const decoder = new DecodeUTF8();
+        let carry = "";
+        let finished = false;
+
+        file.ondata = (err, data, final) => {
+          if (finished) return;
+
+          if (err) {
+            updateLoading("Rendering Data|||Unable to read analytics file");
+            resolve({
+              all: eventsOccurrences ? eventsOccurrences : [],
+            });
+            return;
+          }
+
+          totalBytesRead += data.length;
+          const remainingBytes = Math.max(0, totalSize - totalBytesRead);
+          const timeToReadByte = totalBytesRead > 0 ? (Date.now() - startAt) / totalBytesRead : 0;
+          const remainingTime = parseInt(
+            (remainingBytes * timeToReadByte) / 1000
+          );
+
+          if (totalSize > 0) {
+            updateLoading(
+              `Loading Analytics: ${Math.ceil(
+                (totalBytesRead / totalSize) * 100
+              )}%|||Estimated time: ${remainingTime + 1} second${remainingTime + 1 === 1 ? "" : "s"}`
+            );
+          }
+
+          decoder.push(data, final);
+        };
+
+        decoder.ondata = (str, final) => {
+          carry = scanAnalyticsChunk(
+            str,
+            carry,
+            patternsByFirstChar,
+            eventsOccurrences,
+            maxPatternLength,
+            final
+          );
+
+          if (final) {
+            finished = true;
+            scanNextFile(fileIndex + 1);
+          }
+        };
+
+        file.start();
       };
-      file.start();
+
+      scanNextFile(0);
     });
+  }
+
+  static readAnalyticsFile(file, loading, setLoading, selectedFeatures) {
+    return Utils.readAnalyticsFiles(file, loading, setLoading, selectedFeatures);
   }
 
   static getFavoriteWords(words) {

@@ -13,7 +13,7 @@ const nextConfig = {
       "i.imgur.com",
       "better-default-discord.netlify.app",
     ],
-  }
+  },
 };
 
 module.exports = nextConfig;

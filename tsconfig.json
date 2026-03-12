@@ -16,9 +16,10 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
-      "@/public/*": ["./public/*"]
+      "@/public/*": ["./public/*"],
+      "react-twemoji": ["./types/react-twemoji"]
     },
-    "typeRoots": ["./node_modules/@types", "./src/types"],
+    "typeRoots": ["./node_modules/@types", "./src/types", "./types"],
     "incremental": true
   },
   "allowSyntheticDefaultImports": true,

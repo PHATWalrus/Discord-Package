@@ -80,6 +80,14 @@ When hosting locally or externally, make sure you change the `NEXT_PUBLIC_DOMAIN
 
 - Local: Just edit it manually
 - External: You need to customize it via the provider dashboard settings.
+
+### Deploying With GitHub Pages
+
+- Push to `main` and GitHub Actions will build and deploy the static export automatically via `.github/workflows/nextjs.yml`.
+- The workflow installs Rust, builds the WASM bundle, runs the Next.js export, and publishes the `out/` artifact to GitHub Pages.
+- The custom domain file is published from `public/CNAME`.
+- GitHub Pages cannot set the `Cross-Origin-Opener-Policy` and `Cross-Origin-Embedder-Policy` headers from `netlify.toml`, so SharedArrayBuffer optimizations may fall back automatically when deployed directly on Pages.
+
 #### Using Docker
 
 - Run `docker build -t discord-package-explorer .` to build the image.

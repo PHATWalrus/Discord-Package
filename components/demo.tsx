@@ -11,16 +11,22 @@ import Loading from "./Loading";
 export default function Upload(): ReactElement<any> {
   const [data] = useAtom(dataAtom);
 
-  const DynamicComponent = dynamic(() => import("./Data"), {
+  const DynamicComponent = dynamic<any>(
+    () => import("./Data").then((module) => module.default as any),
+    {
     ssr: true,
-    loading: () => <SnackbarProvider><Loading skeleton={true} /></SnackbarProvider>,
-  });
+    loading: () => <Loading skeleton={true} />,
+    }
+  );
 
   return data ? (
-    <Suspense fallback={<SnackbarProvider><Loading skeleton={true} /></SnackbarProvider>}>
-      <SnackbarProvider>
-        <DynamicComponent data={data} demo={true} />
-      </SnackbarProvider>
+    <Suspense fallback={<Loading skeleton={true} />}>
+      {React.createElement(SnackbarProvider as any, null,
+        React.createElement(DynamicComponent as any, {
+          data,
+          demo: true,
+        })
+      )}
     </Suspense>
   ) : (
     <></>

@@ -4,29 +4,25 @@ import { ReactElement, useEffect } from "react";
 import { useSnackbar } from "notistack";
 
 export default function Loading({ skeleton }: any): ReactElement<any> {
-  const { enqueueSnackbar } = useSnackbar();
+  const { closeSnackbar, enqueueSnackbar } = useSnackbar();
 
   useEffect(() => {
-    if (skeleton) {
-      enqueueSnackbar("Rendering the Data, stay tight...", {
-        persist: true,
-        preventDuplicate: true,
-        anchorOrigin: {
-          vertical: "bottom",
-          horizontal: "center",
-        },
-      });
-    } else {
-      enqueueSnackbar("Loading the page, stay tight", {
-        persist: true,
-        preventDuplicate: true,
-        anchorOrigin: {
-          vertical: "bottom",
-          horizontal: "center",
-        },
-      });
-    }
-  });
+    const message = skeleton
+      ? "Rendering the Data, stay tight..."
+      : "Loading the page, stay tight";
+    const snackbarKey = enqueueSnackbar(message, {
+      persist: true,
+      preventDuplicate: true,
+      anchorOrigin: {
+        vertical: "bottom",
+        horizontal: "center",
+      },
+    });
+
+    return () => {
+      closeSnackbar(snackbarKey);
+    };
+  }, [closeSnackbar, enqueueSnackbar, skeleton]);
 
   return !skeleton ? (
     <>
@@ -76,6 +72,19 @@ export default function Loading({ skeleton }: any): ReactElement<any> {
           ></div>
         </div>
         <div className="lg:mx-10 md:mx-8 mx-2 lg:mt-4 mt-2 px-4 py-2 bg-gray-300 dark:bg-[#2b2d31] animate__delay-1s rounded-lg relative group">
+          <div
+            id="no_1"
+            className="flex lg:justify-between md:justify-between justify-center items-center"
+          >
+            <div className="flex items-center gap-3">
+              <div className="ssc-circle w-14 h-14"></div>
+              <div>
+                <div className="ssc-head-line w-48 lg:w-64 md:w-52 h-4"></div>
+                <div className="ssc-line w-24 lg:w-32 md:w-28 h-3 mt-2"></div>
+              </div>
+            </div>
+            <div className="ssc-square hidden lg:block md:block w-24 h-10"></div>
+          </div>
           <div
             id="no_1"
             className="absolute right-[10px] top-[10px] z-[999999] lg:hidden md:hidden group-none:block"

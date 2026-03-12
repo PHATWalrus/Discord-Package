@@ -27,17 +27,37 @@ jobs:
   # Build job
   build:
     runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_DOMAIN: https://discordpackage.com
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            wasm -> target
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack --locked
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: "pnpm"
+
       - name: Install pnpm
-        uses: pnpm/action-setup@v2
+        uses: pnpm/action-setup@v4
         with:
-          version: latest
+          run_install: false
+
       - name: Setup Pages
         uses: actions/configure-pages@v4
         with:
@@ -58,8 +78,18 @@ jobs:
             ${{ runner.os }}-nextjs-${{ hashFiles('**/pnpm-lock.yaml') }}-
       - name: Install dependencies
         run: pnpm install
-      - name: Build with Next.js
-        run: pnpm next build
+
+      - name: Build site
+        run: pnpm build
+
+      - name: Add custom domain file
+        run: |
+          if [ -f public/CNAME ]; then
+            cp public/CNAME out/CNAME
+          elif [ -f CNAME ]; then
+            cp CNAME out/CNAME
+          fi
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

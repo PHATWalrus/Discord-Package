@@ -18,7 +18,6 @@ import Alerts from "./Alerts";
 import moment from "moment";
 import chalk from "chalk";
 import { Line } from "rc-progress";
-import { SnackbarProvider } from "notistack";
 import { motion } from "framer-motion";
 import {
   dataExtractedAtom,
@@ -48,10 +47,13 @@ interface objectInterface extends IObjectKeys {
   other?: any;
 }
 
-const DynamicComponent = dynamic(() => import("./Data"), {
+const DynamicComponent = dynamic<any>(
+  () => import("./Data").then((module) => module.default as any),
+  {
   ssr: false,
-  loading: () => <SnackbarProvider><Loading skeleton={true} /></SnackbarProvider>,
-});
+  loading: () => <Loading skeleton={true} />,
+  }
+);
 
 export default function Upload(): ReactElement<any> {
   const [dragging, setDragging] = React.useState(false);
@@ -64,6 +66,7 @@ export default function Upload(): ReactElement<any> {
   const [oldSelected, setOldSelected] = useAtom(oldSelectedAtom);
   const [selectedFeatures, setSelectedFeatures] = useAtom(selectedFeaturesAtom);
   const { enqueueSnackbar } = useSnackbar();
+  const workerRef = React.useRef<Worker | null>(null);
 
   function hasClass(el: Element, cl: string): boolean {
     return el.classList
@@ -153,9 +156,155 @@ export default function Upload(): ReactElement<any> {
     };
   });
 
+  React.useEffect(() => {
+    return () => {
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+    };
+  }, []);
+
   const delay = (ms: number) => {
     return new Promise((resolve) => setTimeout(resolve, ms));
   };
+
+  const resetUploadState = React.useCallback(() => {
+    setLoading(null);
+    setError(null);
+    setPercent(0);
+    setDragging(false);
+    setCancel(false);
+    setDataExtracted(null);
+  }, [setDataExtracted]);
+
+  const stopActiveUpload = React.useCallback(() => {
+    if (workerRef.current) {
+      workerRef.current.terminate();
+      workerRef.current = null;
+    }
+    resetUploadState();
+  }, [resetUploadState]);
+
+  const startZipUploadInWorker = React.useCallback(
+    async (fileUploaded: File) => {
+      const isDebug = localStorage.getItem("debug") === "true";
+      setLoading("Loading Package|||Preparing background processor");
+      setPercent(1);
+
+      if (workerRef.current) {
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
+
+      const worker = new Worker(
+        new URL("./workers/coordinator.worker.ts", import.meta.url),
+        { type: "module" }
+      );
+      workerRef.current = worker;
+
+      return new Promise<void>((resolve, reject) => {
+        worker.onmessage = (event: MessageEvent<any>) => {
+          const message = event.data;
+          if (!message?.type) {
+            return;
+          }
+
+          if (message.type === "progress") {
+            if (typeof message.percent === "number") {
+              setPercent(message.percent);
+            }
+            setLoading(
+              `${message.label || "Loading Package"}|||${message.detail || ""}`
+            );
+            return;
+          }
+
+          if (message.type === "snapshot") {
+            if (message.data) {
+              setError(null);
+              setDataExtracted(message.data);
+            }
+            return;
+          }
+
+          if (message.type === "done") {
+            workerRef.current = null;
+            worker.terminate();
+
+            const data = message.data;
+            data.fakeInfo = false;
+            setPercent(100);
+            setError(null);
+            setLoading("Rendering Data|||✨ Spicing up things for you ✨");
+
+            toast(
+              <div
+                style={{
+                  width: "300px",
+                }}
+              >
+                <span className="font-bold text-lg text-black dark:text-white">
+                  ✨ Data extracted Successfully ✨
+                </span>
+                <br />
+                <span className="text-black dark:text-white">
+                  Your data is currently being rendered, you may experience a
+                  some lag. If you encounter issues please join our Discord
+                  server and let us know.
+                </span>
+              </div>
+            );
+
+            setDataExtracted(data);
+            setLoading(null);
+            resolve();
+            return;
+          }
+
+          if (message.type === "error") {
+            workerRef.current = null;
+            worker.terminate();
+            setLoading(null);
+            setDataExtracted(null);
+
+            if (message.message === "invalid_package_missing_messages") {
+              setError(
+                "Some important data is missing in your package, try disabling the message category for now or try again later!"
+              );
+            } else {
+              setError(
+                "Your package seems corrupted, Click or drop your package file here to retry. If you think this is a mistake please reach out to me"
+              );
+            }
+
+            reject(new Error(message.message || "Worker processing failed"));
+          }
+        };
+
+        worker.onerror = (event) => {
+          workerRef.current = null;
+          worker.terminate();
+          setLoading(null);
+          setDataExtracted(null);
+          setError(
+            "Your package seems corrupted, Click or drop your package file here to retry. If you think this is a mistake please reach out to me"
+          );
+          reject(new Error(event.message || "Worker processing failed"));
+        };
+
+        worker.postMessage(
+          {
+            type: "start",
+            file: fileUploaded,
+            options: selectedFeatures,
+            debug: isDebug,
+          }
+        );
+      });
+    },
+    [selectedFeatures, setDataExtracted]
+  );
 
   const handleDragEnter = (e: any) => {
     setError(null);
@@ -244,6 +393,18 @@ export default function Upload(): ReactElement<any> {
       fileUploaded.type === "application/zip" ||
       fileUploaded.type === "application/x-zip-compressed"
     ) {
+      if (
+        typeof Worker !== "undefined" &&
+        typeof (fileUploaded as File).arrayBuffer === "function"
+      ) {
+        startZipUploadInWorker(fileUploaded as File).catch((workerError) => {
+          if (localStorage.getItem("debug") === "true") {
+            console.error(workerError);
+          }
+        });
+        return;
+      }
+
       // eslint-disable-next-line
       async function startUpload() {
         const isDebug = localStorage.getItem("debug") === "true";
@@ -329,11 +490,10 @@ export default function Upload(): ReactElement<any> {
 
         let validPackage = true;
 
+        // Files that are absolutely required for a valid Discord package
         const requiredFiles = [
           "README.txt",
           "Account/user.json",
-          "Messages/index.json",
-          "Servers/index.json",
         ];
 
         for (const requiredFile of requiredFiles) {
@@ -347,7 +507,11 @@ export default function Upload(): ReactElement<any> {
           return;
         }
 
-        async function extractData(files: any, options: any) {
+        // Check for optional index files that can be auto-generated if missing
+        const hasMessagesIndex = files.some((file) => file.name === "Messages/index.json");
+        const hasServersIndex = files.some((file) => file.name === "Servers/index.json");
+
+        async function extractData(files: any, options: any, hasMessagesIndex: boolean = true, hasServersIndex: boolean = true) {
           if (isDebug)
             console.log(
               chalk.bold.blue(`[DEBUG] `) +
@@ -761,9 +925,25 @@ export default function Upload(): ReactElement<any> {
           } else await delay(100);
 
           setPercent(27);
-          const userMessages = JSON.parse(
-            await Utils.readFile("Messages/index.json", files, { debug: isDebug })
-          );
+
+          // Try to read Messages/index.json, or auto-generate if missing
+          let userMessages: any = {};
+          if (hasMessagesIndex) {
+            userMessages = JSON.parse(
+              await Utils.readFile("Messages/index.json", files, { debug: isDebug })
+            );
+          } else {
+            if (isDebug) {
+              console.log(
+                chalk.bold.blue(`[DEBUG] `) +
+                chalk.bold.cyan(`[${moment(Date.now()).format("h:mm:ss a")}]`) +
+                `  ${chalk.yellow(
+                  `Messages/index.json not found, will auto-generate from channel data`
+                )}`
+              );
+            }
+          }
+
           const messagesREGEX = /Messages\/(c)?([0-9]{16,32})\/channel\.json$/;
           const channelsIDFILE = files.filter((file: any) => {
             if (file && file?.name) {
@@ -882,6 +1062,19 @@ export default function Upload(): ReactElement<any> {
                 extension === "csv"
                   ? Utils.parseCSV(rawMessages)
                   : Utils.parseJSON(rawMessages, { entryName: channelMessagesPath });
+
+              // Auto-generate userMessages entry if Messages/index.json was missing
+              if (!hasMessagesIndex && data_ && data_.id && !userMessages[data_.id]) {
+                // Build channel name from data object (could be DM recipient or channel name)
+                if (data_.name) {
+                  userMessages[data_.id] = data_.name;
+                } else if (data_.recipients && data_.recipients.length > 0) {
+                  // For DMs, use recipient username
+                  userMessages[data_.id] = data_.recipients[0];
+                } else {
+                  userMessages[data_.id] = `Channel_${data_.id}`;
+                }
+              }
 
               if (data_ && data_.id && userMessages?.[data_.id]) {
                 const name = userMessages[data_.id].replace("#0", "");
@@ -1861,9 +2054,24 @@ export default function Upload(): ReactElement<any> {
               await delay(2000);
             } else await delay(100);
 
-            const guilds = JSON.parse(
-              await Utils.readFile("Servers/index.json", files)
-            );
+            let guilds: any = {};
+            if (hasServersIndex) {
+              guilds = JSON.parse(
+                await Utils.readFile("Servers/index.json", files)
+              );
+            } else {
+              if (isDebug) {
+                console.log(
+                  chalk.bold.blue(`[DEBUG] `) +
+                  chalk.bold.cyan(
+                    `[${moment(Date.now()).format("h:mm:ss a")}]`
+                  ) +
+                  `  ${chalk.yellow(
+                    `Servers/index.json not found, using empty guilds object`
+                  )}`
+                );
+              }
+            }
             data.guilds = guilds;
             if (isDebug) {
               setLoading("Loading Guilds|||Loaded Guilds");
@@ -2068,7 +2276,7 @@ export default function Upload(): ReactElement<any> {
           return data;
         }
 
-        extractData(files, selectedFeatures)
+        extractData(files, selectedFeatures, hasMessagesIndex, hasServersIndex)
           .then(async (data) => {
             setLoading(null);
             setError(null);
@@ -2186,16 +2394,13 @@ export default function Upload(): ReactElement<any> {
   );
 
   return dataExtracted ? (
-    <Suspense
-      fallback={
-        <SnackbarProvider>
-          <Loading skeleton={true} />
-        </SnackbarProvider>
-      }
-    >
-      <SnackbarProvider>
-        <DynamicComponent data={dataExtracted} demo={false} loading={loading} percent={percent} />
-      </SnackbarProvider>
+    <Suspense fallback={<Loading skeleton={true} />}>
+      {React.createElement(DynamicComponent as any, {
+        data: dataExtracted,
+        demo: false,
+        loading,
+        percent,
+      })}
     </Suspense>
   ) : (
     <>
@@ -2908,7 +3113,11 @@ export default function Upload(): ReactElement<any> {
                                   <div className="flex gap-4 items-center flex-shrink-0">
                                     <button
                                       onClick={() => {
-                                        window.location.reload();
+                                        if (workerRef.current) {
+                                          stopActiveUpload();
+                                        } else {
+                                          window.location.reload();
+                                        }
                                       }}
                                       className="button-green text-gray-200"
                                     >

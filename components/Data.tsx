@@ -1999,7 +1999,10 @@ export default function Data({ data, demo, loading, percent }: any): ReactElemen
                     <Tippy
                       zIndex={99999999999999}
                       content={
-                        data.messages.attachmentCount.length + " Attachments"
+                        String(
+                          data?.messages?.attachmentCountTotal ||
+                            data.messages.attachmentCount.length
+                        ) + " Attachments"
                       }
                       animation="scale"
                       className="shadow-xl"

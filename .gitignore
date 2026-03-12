@@ -7,6 +7,7 @@ node_modules
 
 # testing
 /coverage
+/docs
 
 # next.js
 .next/
@@ -33,6 +34,9 @@ yarn-error.log*
 # vercel
 .vercel
 yarn.lock
+public/wasm/
+wasm/public/wasm/
+wasm/target/
 components/json/test.json
 *.zip
 package/
