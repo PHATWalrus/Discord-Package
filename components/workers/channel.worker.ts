@@ -12,6 +12,17 @@ const workerScope: any = self;
 let wasmAnalyzeChannelMessages: ((raw: string, format: number, options: number) => string) | null = null;
 let wasmInitPromise: Promise<void> | null = null;
 
+function resolveWasmAssetUrl(assetName: string): string {
+  const { origin, pathname } = workerScope.location;
+  const nextIndex = pathname.indexOf("/_next/");
+  const basePath = nextIndex >= 0 ? pathname.slice(0, nextIndex) : "";
+  const normalizedBasePath = basePath.endsWith("/")
+    ? basePath.slice(0, -1)
+    : basePath;
+
+  return new URL(`${normalizedBasePath}/wasm/${assetName}`, origin).toString();
+}
+
 // Options bitmask constants — must match lib.rs
 const OPT_FAVORITE_WORDS = 1 << 0;
 const OPT_CURSED = 1 << 1;
@@ -31,8 +42,8 @@ async function initWasm(): Promise<void> {
 
   wasmInitPromise = (async () => {
     try {
-      const moduleUrl = new URL("/wasm/discord_package_wasm.js", workerScope.location.origin).toString();
-      const wasmUrl = new URL("/wasm/discord_package_wasm_bg.wasm", workerScope.location.origin).toString();
+      const moduleUrl = resolveWasmAssetUrl("discord_package_wasm.js");
+      const wasmUrl = resolveWasmAssetUrl("discord_package_wasm_bg.wasm");
       const wasmModule: any = await import(/* webpackIgnore: true */ moduleUrl);
       await wasmModule.default(wasmUrl);
 

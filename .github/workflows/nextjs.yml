@@ -77,6 +77,11 @@ jobs:
             cp CNAME out/CNAME
           fi
 
+      - name: Verify exported WASM assets
+        run: |
+          test -f out/wasm/discord_package_wasm.js
+          test -f out/wasm/discord_package_wasm_bg.wasm
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

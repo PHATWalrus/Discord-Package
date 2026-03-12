@@ -66,6 +66,17 @@ let lastProgressPercent = -1;
 let wasmAnalyzeText: WasmAnalyzeText | null = null;
 let wasmInitPromise: Promise<void> | null = null;
 
+function resolveWasmAssetUrl(assetName: string) {
+  const { origin, pathname } = workerScope.location;
+  const nextIndex = pathname.indexOf("/_next/");
+  const basePath = nextIndex >= 0 ? pathname.slice(0, nextIndex) : "";
+  const normalizedBasePath = basePath.endsWith("/")
+    ? basePath.slice(0, -1)
+    : basePath;
+
+  return new URL(`${normalizedBasePath}/wasm/${assetName}`, origin).toString();
+}
+
 function createEmptyPackageData() {
   return {
     user: {
@@ -184,8 +195,8 @@ async function ensureWasmAnalyzer() {
 
   wasmInitPromise = (async () => {
     try {
-      const moduleUrl = new URL("/wasm/discord_package_wasm.js", workerScope.location.origin).toString();
-      const wasmUrl = new URL("/wasm/discord_package_wasm_bg.wasm", workerScope.location.origin).toString();
+      const moduleUrl = resolveWasmAssetUrl("discord_package_wasm.js");
+      const wasmUrl = resolveWasmAssetUrl("discord_package_wasm_bg.wasm");
       const wasmModule: any = await import(
         /* webpackIgnore: true */ moduleUrl
       );
